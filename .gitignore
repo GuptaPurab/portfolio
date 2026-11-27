@@ -1,0 +1,10 @@
+# local / tooling
+.vercel
+.claude
+node_modules
+.env*
+.DS_Store
+Thumbs.db
+
+# duplicate of assets/PurabGupta-Resume.pdf, not used by the site
+23CSU252_PURAB_GUPTA__Resume.pdf

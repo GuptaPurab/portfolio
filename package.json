@@ -1,0 +1,13 @@
+{
+  "name": "purab-gupta-portfolio",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "npx --yes vercel dev",
+    "serve": "python -m http.server 4321",
+    "visuals": "node tools/generate-visuals.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
