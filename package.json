@@ -7,6 +7,9 @@
     "serve": "python -m http.server 4321",
     "visuals": "node tools/generate-visuals.mjs"
   },
+  "dependencies": {
+    "redis": "^4.7.0"
+  },
   "engines": {
     "node": ">=18"
   }
