@@ -233,6 +233,7 @@ function intro() {
     gsap.set([splits.get(heroName), heroWords, '.hero .lines span', '.hero__meta .label', '.nav .label', '.hero__glow'], { clearProps: 'all' });
     loader.remove();
     document.body.classList.remove('is-loading');
+    introDone();
     return;
   }
 
@@ -257,8 +258,12 @@ function intro() {
         gsap.to(el, { opacity: 1, duration: 0.3, delay: i * 0.12 });
         setTimeout(() => scramble(el, 0.9), i * 120);
       });
-    }, 1.8);
+    }, 1.8)
+    .add(introDone, 1.9); // odometer starts spinning here
 }
+
+let introDone;
+const introReady = new Promise(r => (introDone = r));
 
 /* =========================================================
    SCROLL ANIMATIONS
@@ -504,48 +509,104 @@ $$('[data-magnetic]').forEach(btn => {
 /* =========================================================
    VISITOR COUNTER
    ========================================================= */
-async function visitorCounter() {
-  const wrap = $('[data-visits]');
-  const out = $('[data-visits-count]');
-  const params = new URLSearchParams(location.search);
-  let count = null;
+// Mechanical odometer: each drum is a strip of 0–9 repeated three times, so it can
+// always roll *forward* (never backwards) to the next digit, like a real counter.
+const DEMO = new URLSearchParams(location.search).has('visits-demo');
+const REPEAT = 3;
+const odo = { wrap: $('[data-visits]'), wheels: $('[data-visits-count]'), strips: [], idx: [], value: null };
 
-  if (params.has('visits-demo')) count = 12847;
-  else {
-    let counted = false;
-    try { counted = sessionStorage.getItem('pg-visit') === '1'; } catch {}
-    try {
-      const res = await fetch(SITE.visitsEndpoint, { method: counted ? 'GET' : 'POST', cache: 'no-store' });
-      if (!res.ok) return;
-      const data = await res.json();
-      if (typeof data.count !== 'number') return;
-      count = data.count;
-      try { sessionStorage.setItem('pg-visit', '1'); } catch {}
-    } catch {
-      return; // not deployed / offline — keep the counter hidden
-    }
+async function fetchCount(method) {
+  if (DEMO) return (odo.value ?? 12846) + (method === 'POST' ? 1 : Math.random() < 0.5 ? 1 : 0);
+  const res = await fetch(SITE.visitsEndpoint, { method, cache: 'no-store' });
+  if (!res.ok) throw new Error(`visits ${res.status}`);
+  const data = await res.json();
+  if (typeof data.count !== 'number') throw new Error('bad payload');
+  return data.count;
+}
+
+function buildDrums(n) {
+  odo.wheels.textContent = '';
+  odo.strips = [];
+  odo.idx = [];
+  for (let i = 0; i < n; i++) {
+    const drum = document.createElement('span');
+    drum.className = 'odo__d';
+    const strip = document.createElement('span');
+    strip.className = 'odo__strip';
+    strip.innerHTML = Array.from({ length: 10 * REPEAT }, (_, k) => `<span>${k % 10}</span>`).join('');
+    drum.appendChild(strip);
+    odo.wheels.appendChild(drum);
+    odo.strips.push(strip);
+    odo.idx.push(0);
+  }
+}
+
+function rollTo(count, first) {
+  const len = Math.max(6, String(count).length);
+  if (odo.strips.length !== len) buildDrums(len);
+  const digits = String(count).padStart(len, '0').split('').map(Number);
+  odo.wheels.setAttribute('aria-label', `${count.toLocaleString()} visitors since launch`);
+  odo.value = count;
+
+  digits.forEach((d, i) => {
+    const strip = odo.strips[i];
+    const cur = odo.idx[i] % 10;
+    const fromRight = len - 1 - i;
+    let target;
+    if (first) target = (fromRight < 2 ? 20 : 10) + d; // right drums spin an extra turn
+    else if (d === cur) return;
+    else target = 10 + d + (d < cur ? 10 : 0); // always roll forward
+    const toY = (-target * 100) / (10 * REPEAT);
+    gsap.killTweensOf(strip);
+    gsap.fromTo(
+      strip,
+      { filter: 'blur(2.5px)' },
+      {
+        yPercent: toY,
+        filter: 'blur(0px)',
+        duration: reduceMotion ? 0 : first ? 2.4 + fromRight * 0.18 : 1.2,
+        delay: first ? (len - fromRight) * 0.05 : 0,
+        ease: first ? 'power4.out' : 'back.out(1.6)',
+        onComplete: () => {
+          // jump back to the middle copy of the digits (looks identical) so the next roll can go forward
+          odo.idx[i] = 10 + d;
+          gsap.set(strip, { yPercent: (-(10 + d) * 100) / (10 * REPEAT) });
+        },
+      }
+    );
+    odo.idx[i] = target;
+  });
+}
+
+async function visitorCounter() {
+  let counted = false;
+  try { counted = sessionStorage.getItem('pg-visit') === '1'; } catch {}
+
+  let count;
+  try {
+    count = await fetchCount(counted ? 'GET' : 'POST');
+    try { sessionStorage.setItem('pg-visit', '1'); } catch {}
+  } catch {
+    return; // not deployed / offline — keep the odometer hidden
   }
 
-  const digits = String(count).padStart(6, '0').split('');
-  out.textContent = '';
-  out.setAttribute('aria-label', String(count));
-  const cols = digits.map(() => {
-    const d = document.createElement('span');
-    d.className = 'd';
-    const strip = document.createElement('span');
-    strip.innerHTML = '0<br>1<br>2<br>3<br>4<br>5<br>6<br>7<br>8<br>9';
-    d.appendChild(strip);
-    out.appendChild(d);
-    return strip;
-  });
-  wrap.hidden = false;
+  buildDrums(Math.max(6, String(count).length));
+  await introReady;
+  odo.wrap.hidden = false;
+  if (!reduceMotion) {
+    gsap.from(odo.wrap, { opacity: 0, y: 24, filter: 'blur(10px)', duration: 1.2, ease: 'expo.out' });
+    $$('[data-odo-text]', odo.wrap).forEach((el, i) => setTimeout(() => scramble(el, 0.8), i * 150));
+  }
+  rollTo(count, true);
 
-  const roll = () => cols.forEach((s, i) => {
-    s.style.transitionDelay = `${i * 0.08}s`;
-    s.style.transform = `translateY(-${+digits[i] * 1.8}em)`;
-  });
-  ScrollTrigger.create({ trigger: wrap, start: 'top bottom', once: true, onEnter: roll });
-  ScrollTrigger.refresh();
+  // keep it live: new visitors tick in while the page is open
+  setInterval(async () => {
+    if (document.hidden) return;
+    try {
+      const next = await fetchCount('GET');
+      if (next !== odo.value) rollTo(next, false);
+    } catch {}
+  }, 45000);
 }
 
 /* =========================================================
